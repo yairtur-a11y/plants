@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#4a7c59">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="השקיה">
+  <title>Plant Watering Calendar</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/icon.svg">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+  <!-- Update banner -->
+  <div id="update-banner">
+    <span>🌿 עדכון זמין לאפליקציה</span>
+    <button id="btn-apply-update">עדכן עכשיו</button>
+  </div>
+
+  <!-- Header -->
+  <header class="app-header">
+    <h1>לוח השקיה 🌱</h1>
+    <span class="header-icon">💧</span>
+  </header>
+
+  <!-- ── TODAY SCREEN ── -->
+  <main id="screen-today" class="screen">
+    <div class="today-date">
+      <div class="date-heb" id="today-date-heb"></div>
+    </div>
+    <div id="reminder-banner" class="reminder-banner" style="display:none;"></div>
+    <div class="section-title">💧 מה להשקות היום</div>
+    <div id="today-tasks"></div>
+  </main>
+
+  <!-- ── CALENDAR SCREEN ── -->
+  <main id="screen-calendar" class="screen">
+    <div class="card" style="padding:12px;">
+      <div class="cal-header">
+        <button class="cal-nav-btn" id="cal-next">&#8592;</button>
+        <span class="cal-month" id="cal-month-label"></span>
+        <button class="cal-nav-btn" id="cal-prev">&#8594;</button>
+      </div>
+      <div class="cal-grid" id="cal-grid"></div>
+    </div>
+    <div style="margin-top:8px;padding:0 4px;">
+      <small style="color:#aaa;font-size:0.75rem;">לחצי על יום עם נקודה לפרטים</small>
+    </div>
+  </main>
+
+  <!-- ── PLANTS SCREEN ── -->
+  <main id="screen-plants" class="screen">
+    <div class="section-title">🌿 הצמחים שלי</div>
+    <div id="plants-list"></div>
+  </main>
+
+  <!-- ── SETTINGS SCREEN ── -->
+  <main id="screen-settings" class="screen">
+    <div class="settings-section">
+      <div class="section-label">התראות</div>
+      <div class="settings-card">
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-label">שעת תזכורת</div>
+            <div class="settings-row-sub">ייבדק כשהאפליקציה פתוחה</div>
+          </div>
+          <input type="time" id="notif-time" class="time-input" value="09:00">
+        </div>
+      </div>
+      <button class="wide-btn primary" id="btn-enable-notif" style="margin-top:10px;">🔔 הפעל התראות</button>
+      <div id="notif-status" class="notif-status"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">מידע</div>
+      <div class="info-box">
+        התראות דפדפן פועלות רק כשהאפליקציה פתוחה. להתראות אמינות יותר, התקיני את האפליקציה כ-PWA ("הוסף למסך הבית") בנייד.
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">איפוס</div>
+      <button class="wide-btn danger" id="btn-reset">🗑 אפס היסטוריה והגדרות</button>
+    </div>
+  </main>
+
+  <!-- ── DAY MODAL ── -->
+  <div class="modal-overlay" id="day-modal">
+    <div class="modal-sheet">
+      <button class="modal-close" id="modal-close">✕</button>
+      <div class="modal-title" id="modal-date-title"></div>
+      <div id="modal-task-list"></div>
+    </div>
+  </div>
+
+  <!-- ── EDIT PLANT MODAL ── -->
+  <div class="edit-modal-overlay" id="edit-modal">
+    <div class="edit-sheet">
+      <h2>✏️ עריכת צמח</h2>
+      <div class="form-group">
+        <label>שם</label>
+        <input type="text" id="edit-name" placeholder="שם הצמח">
+      </div>
+      <div class="form-group">
+        <label>הנחיית השקיה</label>
+        <textarea id="edit-instr" placeholder="הנחיה..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>הערות</label>
+        <textarea id="edit-notes" placeholder="הערות..."></textarea>
+      </div>
+      <button class="save-btn" id="edit-save">שמור</button>
+      <button class="wide-btn" id="edit-cancel" style="margin-top:10px;background:var(--cream-dark);color:var(--text-light);">ביטול</button>
+    </div>
+  </div>
+
+  <!-- ── BOTTOM NAV ── -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-screen="today">
+      <span class="nav-icon">🌞</span>
+      <span>היום</span>
+    </button>
+    <button class="nav-btn" data-screen="calendar">
+      <span class="nav-icon">📅</span>
+      <span>לוח שנה</span>
+    </button>
+    <button class="nav-btn" data-screen="plants">
+      <span class="nav-icon">🌿</span>
+      <span>צמחים</span>
+    </button>
+    <button class="nav-btn" data-screen="settings">
+      <span class="nav-icon">⚙️</span>
+      <span>הגדרות</span>
+    </button>
+  </nav>
+
+  <script src="./app.js"></script>
+</body>
+</html>
