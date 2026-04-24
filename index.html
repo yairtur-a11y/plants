@@ -31,6 +31,7 @@
   <main id="screen-today" class="screen">
     <div class="today-date">
       <div class="date-heb" id="today-date-heb"></div>
+      <div id="season-indicator" class="season-pill"></div>
     </div>
     <div id="reminder-banner" class="reminder-banner" style="display:none;"></div>
     <div class="section-title">💧 מה להשקות היום</div>
@@ -73,6 +74,25 @@
       </div>
       <button class="wide-btn primary" id="btn-enable-notif" style="margin-top:10px;">🔔 הפעל התראות</button>
       <div id="notif-status" class="notif-status"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-label">מצב עונתי</div>
+      <div class="settings-card">
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:10px;">
+          <div>
+            <div class="settings-row-label">עונת ההשקיה הפעילה</div>
+            <div class="settings-row-sub">אוטומטי מזהה את העונה לפי תאריך</div>
+          </div>
+          <div class="season-mode-picker">
+            <button class="season-btn" data-mode="auto">🔄 אוטומטי</button>
+            <button class="season-btn" data-mode="summer">☀️ קיץ</button>
+            <button class="season-btn" data-mode="winter">🌧️ חורף</button>
+            <button class="season-btn" data-mode="transition">🍂 מעבר</button>
+          </div>
+          <div id="season-auto-info" style="font-size:0.8rem;color:var(--green-dark);font-weight:600;"></div>
+        </div>
+      </div>
     </div>
 
     <div class="settings-section">

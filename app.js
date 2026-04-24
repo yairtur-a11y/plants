@@ -9,11 +9,11 @@ const DEFAULT_PLANTS = [
     name: 'קלתאה',
     emoji: '🌿',
     schedule: 'weekly-sunday',
-    checkDay: 4, // Thursday (0=Sun)
+    checkDay: 4,
     checkNote: 'השקי רק אם האדמה העליונה יבשה',
     instruction: 'השקי ביום ראשון. בדקי ביום חמישי – אם האדמה העליונה יבשה, הוסיפי מים.',
     notes: 'אוהבת אדמה לחה קלות, לא מוצפת.',
-    waterDays: [0], // Sunday=0
+    waterDays: [0],
     everyNWeeks: 1,
   },
   {
@@ -33,7 +33,7 @@ const DEFAULT_PLANTS = [
     name: 'עץ הדר צעיר',
     emoji: '🍋',
     schedule: 'weekly-sunday',
-    checkDay: 2, // Tuesday
+    checkDay: 2,
     checkNote: 'הוסיפי מעט מים רק אם יבש',
     instruction: 'השקי ביום ראשון. בדקי ביום שלישי – הוסיפי מעט מים אם יבש.',
     notes: 'אוהב אור חזק.',
@@ -57,7 +57,7 @@ const DEFAULT_PLANTS = [
     name: 'ייחורים קטנים',
     emoji: '🌾',
     schedule: 'weekly-sunday',
-    checkDay: 4, // Thursday
+    checkDay: 4,
     checkNote: 'השקי קלות רק אם יבש',
     instruction: 'השקי קלות ביום ראשון. בדקי ביום חמישי – השקי קלות אם יבש.',
     notes: 'שמרי על לחות קלה, לא להציף.',
@@ -126,6 +126,57 @@ const DEFAULT_PLANTS = [
   },
 ];
 
+// ── Seasonal adjustment rules (keyed by plant id → season) ─
+// Each entry overrides or extends the base schedule for that season.
+const SEASONAL_RULES = {
+  kalatea: {
+    // Summer: add Tuesday watering on top of Sunday + Thursday check
+    summer:     { extraTuesdayWater: true },
+    // Winter: drop Thursday check (too damp, less evaporation)
+    winter:     { removeCheckDay: true },
+    transition: {},
+  },
+  orchid: {
+    // Summer: keep weekly but add a mid-week moisture reminder in the label
+    summer:     { midweekNote: 'בדקי לחות באמצע השבוע' },
+    // Winter: water every 2 Sundays (~10 days approximation)
+    winter:     { intervalWeeks: 2 },
+    transition: {},
+  },
+  citrus: {
+    // Summer: Tuesday becomes a real watering, not just a check
+    summer:     { tuesdayWater: true },
+    // Winter: drop Tuesday entirely – once per week is enough
+    winter:     { removeCheckDay: true },
+    transition: {},
+  },
+  peperomia: {
+    // Summer: hotter soil dries faster, add a Thursday moisture check
+    summer:     { addThursdayCheck: true },
+    // Winter: soil stays moist longer – emphasise "only if really dry"
+    winter:     { winterNote: 'השקי רק אם האדמה ממש יבשה לגמרי' },
+    transition: {},
+  },
+  cuttings: {
+    // Summer: Thursday check becomes a light water if dry
+    summer:     { thursdayWater: true },
+    // Winter: Sunday only, skip Thursday
+    winter:     { removeCheckDay: true },
+    transition: {},
+  },
+  croton: {
+    // Summer: add Thursday check (soil dries faster in heat)
+    summer:     { addThursdayCheck: true },
+    winter:     {},
+    transition: {},
+  },
+  // Low-water plants: change interval by season
+  zz:           { summer: { intervalWeeks: 2 }, winter: { intervalWeeks: 4 }, transition: {} },
+  crassula:     { summer: { intervalWeeks: 2 }, winter: { intervalWeeks: 4 }, transition: {} },
+  portulacaria: { summer: { intervalWeeks: 2 }, winter: { intervalWeeks: 4 }, transition: {} },
+  cactus:       { summer: { intervalWeeks: 2 }, winter: { intervalWeeks: 4 }, transition: {} },
+};
+
 // ── Constants ──────────────────────────────────────────────
 const DAY_NAMES_HE = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 const MONTH_NAMES_HE = [
@@ -133,8 +184,35 @@ const MONTH_NAMES_HE = [
   'יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'
 ];
 
-// The "epoch" Sunday for 3-week cycle calculations (first Sunday on or after 2024-01-07)
-const CYCLE_EPOCH = new Date(2024, 0, 7); // 2024-01-07 (Sunday)
+const SEASON_LABELS = {
+  summer:     { he: 'קיץ',       emoji: '☀️' },
+  winter:     { he: 'חורף',      emoji: '🌧️' },
+  transition: { he: 'עונת מעבר', emoji: '🍂' },
+};
+
+// Epoch Sunday for cycle maths (2024-01-07)
+const CYCLE_EPOCH = new Date(2024, 0, 7);
+
+// ── Season detection ───────────────────────────────────────
+
+/** Tel-Aviv seasonal model by calendar month (1-indexed). */
+function getCurrentSeason(date) {
+  const m = date.getMonth() + 1;
+  if (m >= 5 && m <= 9)           return 'summer';
+  if (m === 11 || m === 12 || m <= 2) return 'winter';
+  return 'transition'; // March, April, October
+}
+
+/**
+ * Returns the active season for a given date.
+ * Respects manual override stored in settings.seasonMode.
+ * In 'auto' mode the season is derived from the date itself,
+ * so the calendar naturally shows correct future behaviour.
+ */
+function getActiveSeason(date) {
+  const mode = settings.seasonMode || 'auto';
+  return mode === 'auto' ? getCurrentSeason(date) : mode;
+}
 
 // ── Storage helpers ────────────────────────────────────────
 function loadPlants() {
@@ -144,16 +222,22 @@ function loadPlants() {
   } catch (_) {}
   return JSON.parse(JSON.stringify(DEFAULT_PLANTS));
 }
-function savePlants(plants) {
-  localStorage.setItem('plants', JSON.stringify(plants));
-}
+function savePlants(p) { localStorage.setItem('plants', JSON.stringify(p)); }
+
 function loadHistory() {
   try { return JSON.parse(localStorage.getItem('history')) || {}; } catch (_) { return {}; }
 }
 function saveHistory(h) { localStorage.setItem('history', JSON.stringify(h)); }
+
 function loadSettings() {
-  try { return Object.assign({ notifTime: '09:00', notifEnabled: false }, JSON.parse(localStorage.getItem('settings'))); }
-  catch (_) { return { notifTime: '09:00', notifEnabled: false }; }
+  try {
+    return Object.assign(
+      { notifTime: '09:00', notifEnabled: false, seasonMode: 'auto' },
+      JSON.parse(localStorage.getItem('settings'))
+    );
+  } catch (_) {
+    return { notifTime: '09:00', notifEnabled: false, seasonMode: 'auto' };
+  }
 }
 function saveSettings(s) { localStorage.setItem('settings', JSON.stringify(s)); }
 
@@ -162,61 +246,139 @@ let plants   = loadPlants();
 let history  = loadHistory();
 let settings = loadSettings();
 let calYear, calMonth;
-let editingPlantId = null;
+let editingPlantId    = null;
 let notifTimerInterval = null;
 
-// ── Scheduling logic ───────────────────────────────────────
+// ── Scheduling helpers ─────────────────────────────────────
 
 /** Returns YYYY-MM-DD string for a Date */
 function dateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-/** Get JS day-of-week: 0=Sun,1=Mon,...,6=Sat */
+/** JS day-of-week: 0=Sun … 6=Sat */
 function dow(d) { return d.getDay(); }
 
-/** How many weeks since CYCLE_EPOCH for a given Sunday */
+/** Whole weeks elapsed since CYCLE_EPOCH */
 function weeksSinceEpoch(d) {
   const ms = d - CYCLE_EPOCH;
   return Math.round(ms / (7 * 24 * 3600 * 1000));
 }
 
-/** Is date a "3-week Sunday"? */
-function isTriWeeklySunday(d) {
-  if (dow(d) !== 0) return false;
-  const w = weeksSinceEpoch(d);
-  return w >= 0 && w % 3 === 0;
-}
+// ── Core scheduling logic (season-aware) ──────────────────
 
-/** Build list of tasks for a given date */
+/**
+ * Returns an array of task objects for the given date.
+ * Each task: { plant, type ('water'|'check'), label, seasonal (bool) }
+ * `seasonal: true` means the schedule has been adjusted for the current season.
+ */
 function getTasksForDate(d) {
-  const day = dow(d);
-  const key = dateKey(d);
-  const tasks = [];
+  const day    = dow(d);
+  const season = getActiveSeason(d);
+  const tasks  = [];
 
   for (const p of plants) {
-    // 3-week plants: only on tri-weekly Sundays
+    const adj = ((SEASONAL_RULES[p.id] || {})[season]) || {};
+    // A plant is "seasonally adjusted" when its rule object is non-empty
+    const isAdjusted = Object.keys(adj).length > 0;
+
+    // ── Variable-interval plants (base: every 3 weeks) ────
     if (p.everyNWeeks === 3) {
-      if (isTriWeeklySunday(d)) {
-        tasks.push({ plant: p, type: 'water', label: p.instruction });
+      const n = adj.intervalWeeks ?? 3;
+      if (day === 0 && weeksSinceEpoch(d) % n === 0) {
+        const note =
+          n === 2 ? ' (קיץ – כל שבועיים)'
+          : n === 4 ? ' (חורף – כל 4 שבועות)'
+          : '';
+        tasks.push({ plant: p, type: 'water', label: p.instruction + note, seasonal: n !== 3 });
       }
       continue;
     }
 
-    // Weekly plants
-    if (day === 0) { // Sunday
-      tasks.push({ plant: p, type: 'water', label: p.instruction });
-    } else if (p.checkDay !== null && day === p.checkDay) {
-      tasks.push({ plant: p, type: 'check', label: `בדיקה: ${p.checkNote}` });
+    // ── Orchid winter: every-2-weeks override ─────────────
+    if (p.id === 'orchid' && adj.intervalWeeks === 2) {
+      if (day === 0 && weeksSinceEpoch(d) % 2 === 0) {
+        tasks.push({
+          plant: p, type: 'water',
+          label: p.instruction + ' (חורף – כל שבועיים)',
+          seasonal: true,
+        });
+      }
+      continue; // skip normal Sunday + non-Sunday logic
+    }
+
+    // ── Sunday: main watering for all weekly plants ────────
+    if (day === 0) {
+      let label    = p.instruction;
+      let seasonal = isAdjusted;
+      if (adj.midweekNote) label += ` — ${adj.midweekNote}`;
+      if (adj.winterNote)  label += ` (${adj.winterNote})`;
+      tasks.push({ plant: p, type: 'water', label, seasonal });
+    }
+
+    // ── Non-Sunday per-plant rules ─────────────────────────
+    if (day !== 0) {
+      switch (p.id) {
+
+        case 'kalatea':
+          // Summer: extra Tuesday watering
+          if (day === 2 && adj.extraTuesdayWater) {
+            tasks.push({ plant: p, type: 'water', label: 'קיץ: השקי גם ביום שלישי', seasonal: true });
+          }
+          // Thursday check – unless winter removed it
+          if (day === 4 && !adj.removeCheckDay) {
+            tasks.push({ plant: p, type: 'check', label: `בדיקה: ${p.checkNote}`, seasonal: false });
+          }
+          break;
+
+        case 'citrus':
+          if (day === 2) {
+            if (adj.tuesdayWater) {
+              // Summer: Tuesday is a real watering
+              tasks.push({ plant: p, type: 'water', label: 'קיץ: השקי ביום שלישי (חום גבוה)', seasonal: true });
+            } else if (!adj.removeCheckDay) {
+              // Base / transition: Tuesday is a check
+              tasks.push({ plant: p, type: 'check', label: `בדיקה: ${p.checkNote}`, seasonal: false });
+            }
+            // Winter (removeCheckDay): no Tuesday task
+          }
+          break;
+
+        case 'peperomia':
+          // Summer: add Thursday moisture check
+          if (day === 4 && adj.addThursdayCheck) {
+            tasks.push({ plant: p, type: 'check', label: 'קיץ: בדיקה קלה – הוסיפי מים אם יבש', seasonal: true });
+          }
+          break;
+
+        case 'cuttings':
+          if (day === 4 && !adj.removeCheckDay) {
+            if (adj.thursdayWater) {
+              // Summer: Thursday becomes a light watering
+              tasks.push({ plant: p, type: 'water', label: 'קיץ: השקי קלות ביום חמישי אם יבש', seasonal: true });
+            } else {
+              // Base / transition: Thursday is a check
+              tasks.push({ plant: p, type: 'check', label: `בדיקה: ${p.checkNote}`, seasonal: false });
+            }
+          }
+          break;
+
+        case 'croton':
+          // Summer: add Thursday check
+          if (day === 4 && adj.addThursdayCheck) {
+            tasks.push({ plant: p, type: 'check', label: 'קיץ: בדיקה – השקי אם יבש', seasonal: true });
+          }
+          break;
+      }
     }
   }
+
   return tasks;
 }
 
 // ── Hebrew date display ────────────────────────────────────
 function formatDateHe(d) {
-  const dayName = DAY_NAMES_HE[dow(d)];
-  return `יום ${dayName}, ${d.getDate()} ב${MONTH_NAMES_HE[d.getMonth()]} ${d.getFullYear()}`;
+  return `יום ${DAY_NAMES_HE[dow(d)]}, ${d.getDate()} ב${MONTH_NAMES_HE[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 // ── Notification helpers ───────────────────────────────────
@@ -235,7 +397,7 @@ function startNotifTimer() {
   notifTimerInterval = setInterval(() => {
     const s = loadSettings();
     if (!s.notifEnabled) return;
-    const now = new Date();
+    const now  = new Date();
     const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
     if (hhmm === s.notifTime) {
       const tasks = getTasksForDate(now);
@@ -244,7 +406,7 @@ function startNotifTimer() {
   }, 60000);
 }
 
-// ── History key helpers ────────────────────────────────────
+// ── History helpers ────────────────────────────────────────
 function histKey(plantId, dateStr) { return `${plantId}__${dateStr}`; }
 function getStatus(plantId, dateStr) { return history[histKey(plantId, dateStr)] || null; }
 function setStatus(plantId, dateStr, status) {
@@ -256,7 +418,6 @@ function setStatus(plantId, dateStr, status) {
 // ── UI Rendering ──────────────────────────────────────────
 // ══════════════════════════════════════════════════════════
 
-// ── Navigation ────────────────────────────────────────────
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-' + id).classList.add('active');
@@ -270,11 +431,28 @@ function showScreen(id) {
 
 // ── TODAY ─────────────────────────────────────────────────
 function renderToday() {
-  const today = new Date();
+  const today    = new Date();
   const todayKey = dateKey(today);
-  const tasks = getTasksForDate(today);
+  const tasks    = getTasksForDate(today);
+  const season   = getActiveSeason(today);
+  const sl       = SEASON_LABELS[season];
+  const isManual = (settings.seasonMode || 'auto') !== 'auto';
 
   document.getElementById('today-date-heb').textContent = formatDateHe(today);
+
+  // Season indicator pill
+  const pill = document.getElementById('season-indicator');
+  pill.textContent = `${sl.emoji} ${sl.he}${isManual ? ' (ידני)' : ''}`;
+  pill.className   = `season-pill season-pill--${season}`;
+
+  // Reminder banner
+  const banner = document.getElementById('reminder-banner');
+  if (tasks.length) {
+    banner.style.display = 'block';
+    banner.textContent = `💧 ${tasks.length === 1 ? 'יש צמח אחד' : `יש ${tasks.length} צמחים`} להשקיה היום`;
+  } else {
+    banner.style.display = 'none';
+  }
 
   const container = document.getElementById('today-tasks');
   container.innerHTML = '';
@@ -291,19 +469,25 @@ function renderToday() {
 
   tasks.forEach(task => {
     const status = getStatus(task.plant.id, todayKey);
-    const isDone = status === 'water' || status === 'skip' || status === 'check';
+    const isDone = !!status;
 
     const card = document.createElement('div');
     card.className = 'card plant-card' + (isDone ? ' done' : '');
-    card.dataset.pid = task.plant.id;
 
     let statusBadge = '';
-    if (status === 'water') statusBadge = '<span style="color:#4a7c59;font-weight:700;font-size:0.82rem;">✓ השקיתי</span>';
-    else if (status === 'skip') statusBadge = '<span style="color:#aaa;font-weight:700;font-size:0.82rem;">↷ דילגתי</span>';
-    else if (status === 'check') statusBadge = '<span style="color:#7db88a;font-weight:700;font-size:0.82rem;">✓ בדקתי</span>';
+    if (status === 'water') statusBadge = '<span class="status-badge status-badge--water">✓ השקיתי</span>';
+    else if (status === 'skip')  statusBadge = '<span class="status-badge status-badge--skip">↷ דילגתי</span>';
+    else if (status === 'check') statusBadge = '<span class="status-badge status-badge--check">✓ בדקתי</span>';
+
+    const seasonalBadge = task.seasonal
+      ? '<span class="seasonal-badge">🌡 מותאם לעונה</span>'
+      : '';
 
     card.innerHTML = `
-      <div class="plant-name">${task.plant.emoji} ${task.plant.name}</div>
+      <div class="plant-card-header">
+        <div class="plant-name">${task.plant.emoji} ${task.plant.name}</div>
+        ${seasonalBadge}
+      </div>
       <div class="plant-instruction">${task.label}</div>
       <div class="plant-notes">${task.plant.notes}</div>
       ${statusBadge ? `<div style="margin-bottom:8px;">${statusBadge}</div>` : ''}
@@ -316,12 +500,9 @@ function renderToday() {
     container.appendChild(card);
   });
 
-  // Bind action buttons
   container.querySelectorAll('.btn[data-action]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const pid = btn.dataset.pid;
-      const action = btn.dataset.action;
-      setStatus(pid, todayKey, action);
+      setStatus(btn.dataset.pid, todayKey, btn.dataset.action);
       renderToday();
     });
   });
@@ -338,7 +519,6 @@ function renderCalendar() {
   const grid = document.getElementById('cal-grid');
   grid.innerHTML = '';
 
-  // DOW headers – starting Sunday
   ['א','ב','ג','ד','ה','ו','ש'].forEach(d => {
     const el = document.createElement('div');
     el.className = 'cal-dow';
@@ -348,39 +528,33 @@ function renderCalendar() {
 
   const firstDay = new Date(calYear, calMonth, 1);
   const lastDay  = new Date(calYear, calMonth + 1, 0);
-  const startDow = firstDay.getDay(); // 0=Sun
 
-  // Empty cells before first day
-  for (let i = 0; i < startDow; i++) {
+  for (let i = 0; i < firstDay.getDay(); i++) {
     const el = document.createElement('div');
     el.className = 'cal-cell empty';
     grid.appendChild(el);
   }
 
   for (let d = 1; d <= lastDay.getDate(); d++) {
-    const date = new Date(calYear, calMonth, d);
+    const date  = new Date(calYear, calMonth, d);
     const tasks = getTasksForDate(date);
     const isToday = dateKey(date) === dateKey(today);
 
     const cell = document.createElement('div');
     cell.className = 'cal-cell' +
       (tasks.length ? ' has-tasks' : '') +
-      (isToday ? ' today' : '');
+      (isToday      ? ' today'     : '');
     cell.innerHTML = `<span>${d}</span>`;
 
     if (tasks.length) {
       const dots = document.createElement('div');
       dots.className = 'dot-row';
-      const count = Math.min(tasks.length, 3);
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < Math.min(tasks.length, 3); i++) {
         const dot = document.createElement('div');
         dot.className = 'cal-dot';
         dots.appendChild(dot);
       }
       cell.appendChild(dots);
-    }
-
-    if (tasks.length) {
       cell.addEventListener('click', () => openDayModal(date, tasks));
     }
     grid.appendChild(cell);
@@ -388,31 +562,35 @@ function renderCalendar() {
 }
 
 function openDayModal(date, tasks) {
-  const modal = document.getElementById('day-modal');
-  const todayKey = dateKey(date);
-
   document.getElementById('modal-date-title').textContent = formatDateHe(date);
   const list = document.getElementById('modal-task-list');
   list.innerHTML = '';
+  const dKey = dateKey(date);
 
   tasks.forEach(task => {
-    const status = getStatus(task.plant.id, todayKey);
+    const status = getStatus(task.plant.id, dKey);
     let statusText = '';
     if (status === 'water') statusText = ' ✓ השקיתי';
-    else if (status === 'skip') statusText = ' ↷ דילגתי';
+    else if (status === 'skip')  statusText = ' ↷ דילגתי';
     else if (status === 'check') statusText = ' ✓ בדקתי';
 
     const item = document.createElement('div');
     item.className = 'card';
     item.style.marginBottom = '10px';
     item.innerHTML = `
-      <div class="plant-name">${task.plant.emoji} ${task.plant.name}${statusText ? `<span style="color:#7db88a;font-size:0.8rem;"> ${statusText}</span>` : ''}</div>
+      <div class="plant-card-header">
+        <div class="plant-name">
+          ${task.plant.emoji} ${task.plant.name}
+          ${statusText ? `<span style="color:#7db88a;font-size:0.8rem;">${statusText}</span>` : ''}
+        </div>
+        ${task.seasonal ? '<span class="seasonal-badge">🌡 מותאם לעונה</span>' : ''}
+      </div>
       <div class="plant-instruction" style="margin-top:6px;">${task.label}</div>
     `;
     list.appendChild(item);
   });
 
-  modal.classList.add('open');
+  document.getElementById('day-modal').classList.add('open');
 }
 
 // ── PLANTS ────────────────────────────────────────────────
@@ -433,15 +611,24 @@ function renderPlants() {
     `;
     container.appendChild(card);
   });
-
   container.querySelectorAll('.edit-btn').forEach(btn => {
     btn.addEventListener('click', () => openEditModal(btn.dataset.pid));
   });
 }
 
 function scheduleLabel(p) {
-  if (p.everyNWeeks === 3) return 'כל 3 שבועות – ראשון';
-  if (p.checkDay !== null) return `ראשון + בדיקה ב${DAY_NAMES_HE[p.checkDay]}`;
+  const season = getActiveSeason(new Date());
+  const adj    = ((SEASONAL_RULES[p.id] || {})[season]) || {};
+
+  if (p.everyNWeeks === 3) {
+    const n = adj.intervalWeeks ?? 3;
+    if (n === 2) return `כל שבועיים (${SEASON_LABELS.summer.emoji} קיץ)`;
+    if (n === 4) return `כל 4 שבועות (${SEASON_LABELS.winter.emoji} חורף)`;
+    return 'כל 3 שבועות – ראשון';
+  }
+  if (p.id === 'orchid' && adj.intervalWeeks === 2) return 'כל שבועיים (חורף)';
+  if (p.checkDay !== null && !adj.removeCheckDay)
+    return `ראשון + בדיקה ב${DAY_NAMES_HE[p.checkDay]}`;
   return 'כל ראשון';
 }
 
@@ -450,11 +637,9 @@ function openEditModal(pid) {
   editingPlantId = pid;
   const p = plants.find(x => x.id === pid);
   if (!p) return;
-
-  document.getElementById('edit-name').value   = p.name;
-  document.getElementById('edit-notes').value  = p.notes;
-  document.getElementById('edit-instr').value  = p.instruction;
-
+  document.getElementById('edit-name').value  = p.name;
+  document.getElementById('edit-notes').value = p.notes;
+  document.getElementById('edit-instr').value = p.instruction;
   document.getElementById('edit-modal').classList.add('open');
 }
 
@@ -479,40 +664,61 @@ function saveEdit() {
 function renderSettings() {
   document.getElementById('notif-time').value = settings.notifTime;
   updateNotifStatusUI();
+  updateSeasonPickerUI();
 }
 
 function updateNotifStatusUI() {
-  const el = document.getElementById('notif-status');
+  const el   = document.getElementById('notif-status');
   const perm = Notification.permission;
   if (perm === 'granted') {
-    el.className = 'notif-status granted';
+    el.className  = 'notif-status granted';
     el.textContent = '✓ הרשאות התראות פעילות';
   } else if (perm === 'denied') {
-    el.className = 'notif-status denied';
+    el.className  = 'notif-status denied';
     el.textContent = '✗ הרשאות נדחו בדפדפן. יש לאפשר ידנית בהגדרות הדפדפן.';
   } else {
-    el.className = 'notif-status';
+    el.className  = 'notif-status';
     el.textContent = '';
   }
 }
 
-async function enableNotifications() {
-  if (!('Notification' in window)) {
-    alert('הדפדפן שלך לא תומך בהתראות.');
-    return;
+function updateSeasonPickerUI() {
+  const mode = settings.seasonMode || 'auto';
+  document.querySelectorAll('.season-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  // Show detected season when in auto mode
+  const autoInfo = document.getElementById('season-auto-info');
+  if (autoInfo) {
+    const detected = getCurrentSeason(new Date());
+    const sl       = SEASON_LABELS[detected];
+    autoInfo.textContent = mode === 'auto'
+      ? `עונה מזוהה כעת: ${sl.emoji} ${sl.he}`
+      : '';
   }
-  const perm = await Notification.requestPermission();
-  settings.notifEnabled = perm === 'granted';
+}
+
+function saveSeasonMode(mode) {
+  settings.seasonMode = mode;
   saveSettings(settings);
-  updateNotifStatusUI();
-  if (perm === 'granted') {
-    sendNotification(getTasksForDate(new Date())); // test notification
-  }
+  updateSeasonPickerUI();
+  // Immediately refresh screens that depend on season
+  renderToday();
+  if (document.getElementById('screen-plants').classList.contains('active')) renderPlants();
 }
 
 function saveNotifTime() {
   settings.notifTime = document.getElementById('notif-time').value;
   saveSettings(settings);
+}
+
+async function enableNotifications() {
+  if (!('Notification' in window)) { alert('הדפדפן שלך לא תומך בהתראות.'); return; }
+  const perm = await Notification.requestPermission();
+  settings.notifEnabled = perm === 'granted';
+  saveSettings(settings);
+  updateNotifStatusUI();
+  if (perm === 'granted') sendNotification(getTasksForDate(new Date()));
 }
 
 function resetAll() {
@@ -522,7 +728,7 @@ function resetAll() {
   localStorage.removeItem('settings');
   history  = {};
   plants   = JSON.parse(JSON.stringify(DEFAULT_PLANTS));
-  settings = { notifTime: '09:00', notifEnabled: false };
+  settings = { notifTime: '09:00', notifEnabled: false, seasonMode: 'auto' };
   renderSettings();
   alert('הנתונים אופסו.');
 }
@@ -532,11 +738,10 @@ function registerSW() {
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.register('./service-worker.js').then(reg => {
     reg.addEventListener('updatefound', () => {
-      const newWorker = reg.installing;
-      newWorker.addEventListener('statechange', () => {
-        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+      const w = reg.installing;
+      w.addEventListener('statechange', () => {
+        if (w.state === 'installed' && navigator.serviceWorker.controller)
           document.getElementById('update-banner').classList.add('show');
-        }
       });
     });
   });
@@ -552,12 +757,12 @@ function applyUpdate() {
 // ── Bootstrap ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
 
-  // Nav
+  // Bottom nav
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => showScreen(btn.dataset.screen));
   });
 
-  // Day modal close
+  // Day modal
   document.getElementById('modal-close').addEventListener('click', () => {
     document.getElementById('day-modal').classList.remove('open');
   });
@@ -585,23 +790,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target === document.getElementById('edit-modal')) closeEditModal();
   });
 
-  // Settings
+  // Settings – notifications
   document.getElementById('btn-enable-notif').addEventListener('click', enableNotifications);
   document.getElementById('notif-time').addEventListener('change', saveNotifTime);
   document.getElementById('btn-reset').addEventListener('click', resetAll);
 
+  // Settings – season mode picker
+  document.querySelectorAll('.season-btn').forEach(btn => {
+    btn.addEventListener('click', () => saveSeasonMode(btn.dataset.mode));
+  });
+
   // Update banner
   document.getElementById('btn-apply-update').addEventListener('click', applyUpdate);
-
-  // Today reminder banner
-  const todayTasks = getTasksForDate(new Date());
-  const banner = document.getElementById('reminder-banner');
-  if (todayTasks.length) {
-    banner.style.display = 'block';
-    banner.textContent = `💧 ${todayTasks.length === 1 ? 'יש צמח אחד' : `יש ${todayTasks.length} צמחים`} להשקיה היום`;
-  } else {
-    banner.style.display = 'none';
-  }
 
   registerSW();
   startNotifTimer();
