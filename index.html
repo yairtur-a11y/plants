@@ -55,7 +55,10 @@
 
   <!-- ── PLANTS SCREEN ── -->
   <main id="screen-plants" class="screen">
-    <div class="section-title">🌿 הצמחים שלי</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div class="section-title" style="margin-bottom:0;">🌿 הצמחים שלי</div>
+      <button class="btn btn-water" id="btn-add-plant" style="border-radius:50px;font-size:0.85rem;padding:8px 16px;">+ הוסף צמח</button>
+    </div>
     <div id="plants-list"></div>
   </main>
 
@@ -138,6 +141,61 @@
     </div>
   </div>
 
+  <!-- ── ADD PLANT MODAL ── -->
+  <div class="edit-modal-overlay" id="add-modal">
+    <div class="edit-sheet">
+      <h2>🌱 הוספת צמח חדש</h2>
+
+      <div class="form-group">
+        <label>שם הצמח *</label>
+        <input type="text" id="add-name" placeholder="לדוגמה: פיקוס">
+      </div>
+
+      <div class="form-group">
+        <label>אמוג'י</label>
+        <div class="emoji-picker">
+          <button class="emoji-opt selected" type="button">🌱</button>
+          <button class="emoji-opt" type="button">🌿</button>
+          <button class="emoji-opt" type="button">🌸</button>
+          <button class="emoji-opt" type="button">🍃</button>
+          <button class="emoji-opt" type="button">🪴</button>
+          <button class="emoji-opt" type="button">🌼</button>
+          <button class="emoji-opt" type="button">🌻</button>
+          <button class="emoji-opt" type="button">🌾</button>
+          <button class="emoji-opt" type="button">🍀</button>
+          <button class="emoji-opt" type="button">🌵</button>
+          <button class="emoji-opt" type="button">🍋</button>
+          <button class="emoji-opt" type="button">🎋</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>תדירות השקיה</label>
+        <select id="add-freq" class="form-select">
+          <option value="weekly">כל ראשון (שבועי)</option>
+          <option value="3weeks">כל 3 שבועות</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="add-check-row">
+        <label>יום בדיקה נוסף</label>
+        <select id="add-check" class="form-select">
+          <option value="none">ללא</option>
+          <option value="2">יום שלישי</option>
+          <option value="4">יום חמישי</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>הערות</label>
+        <textarea id="add-notes" placeholder="טיפים, דרישות אור, וכד'..."></textarea>
+      </div>
+
+      <button class="save-btn" id="add-save">שמור צמח</button>
+      <button class="wide-btn" id="add-cancel" style="margin-top:10px;background:var(--cream-dark);color:var(--text-light);">ביטול</button>
+    </div>
+  </div>
+
   <!-- ── BOTTOM NAV ── -->
   <nav class="bottom-nav">
     <button class="nav-btn active" data-screen="today">
@@ -157,6 +215,19 @@
       <span>הגדרות</span>
     </button>
   </nav>
+
+  <!-- ── PLANT PHOTOS MODAL ── -->
+  <div class="modal-overlay" id="photo-modal">
+    <div class="modal-sheet photo-modal-sheet">
+      <button class="modal-close" id="photo-modal-close">✕</button>
+      <div class="modal-title" id="photo-modal-title"></div>
+      <label class="photo-upload-label" id="photo-upload-label">
+        📷 הוסף תמונה
+        <input type="file" id="photo-file-input" accept="image/*" style="display:none;">
+      </label>
+      <div id="photo-gallery"></div>
+    </div>
+  </div>
 
   <script src="./app.js"></script>
 </body>

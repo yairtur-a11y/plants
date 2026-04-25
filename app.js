@@ -17,20 +17,8 @@ const DEFAULT_PLANTS = [
     everyNWeeks: 1,
   },
   {
-    id: 'orchid',
-    name: 'סחלב',
-    emoji: '🌸',
-    schedule: 'weekly-sunday',
-    checkDay: null,
-    checkNote: null,
-    instruction: 'השקי ביום ראשון: שרי בכוס מים 10–15 דקות, ואז נקזי לגמרי.',
-    notes: 'אל תשאירי מים עומדים.',
-    waterDays: [0],
-    everyNWeeks: 1,
-  },
-  {
     id: 'citrus',
-    name: 'עץ הדר צעיר',
+    name: 'תפוז',
     emoji: '🍋',
     schedule: 'weekly-sunday',
     checkDay: 2,
@@ -136,13 +124,6 @@ const SEASONAL_RULES = {
     winter:     { removeCheckDay: true },
     transition: {},
   },
-  orchid: {
-    // Summer: keep weekly but add a mid-week moisture reminder in the label
-    summer:     { midweekNote: 'בדקי לחות באמצע השבוע' },
-    // Winter: water every 2 Sundays (~10 days approximation)
-    winter:     { intervalWeeks: 2 },
-    transition: {},
-  },
   citrus: {
     // Summer: Tuesday becomes a real watering, not just a check
     summer:     { tuesdayWater: true },
@@ -241,6 +222,74 @@ function loadSettings() {
 }
 function saveSettings(s) { localStorage.setItem('settings', JSON.stringify(s)); }
 
+// ── Photo DB (IndexedDB) ──────────────────────────────────
+const PHOTO_DB_NAME = 'plantPhotosDB';
+const PHOTO_STORE   = 'photos';
+let photoDB = null;
+
+function openPhotoDB() {
+  if (photoDB) return Promise.resolve(photoDB);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(PHOTO_DB_NAME, 1);
+    req.onupgradeneeded = e => {
+      const store = e.target.result.createObjectStore(PHOTO_STORE, { keyPath: 'id', autoIncrement: true });
+      store.createIndex('plantId', 'plantId', { unique: false });
+    };
+    req.onsuccess = e => { photoDB = e.target.result; resolve(photoDB); };
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function dbAddPhoto(plantId, blob) {
+  return openPhotoDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction(PHOTO_STORE, 'readwrite').objectStore(PHOTO_STORE)
+      .add({ plantId, date: Date.now(), blob });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = e => reject(e.target.error);
+  }));
+}
+
+function dbGetPhotos(plantId) {
+  return openPhotoDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction(PHOTO_STORE, 'readonly').objectStore(PHOTO_STORE)
+      .index('plantId').getAll(plantId);
+    req.onsuccess = () => resolve(req.result.sort((a, b) => b.date - a.date));
+    req.onerror   = e => reject(e.target.error);
+  }));
+}
+
+function dbDeletePhoto(id) {
+  return openPhotoDB().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction(PHOTO_STORE, 'readwrite').objectStore(PHOTO_STORE).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror   = e => reject(e.target.error);
+  }));
+}
+
+// ── Image processing ──────────────────────────────────────
+function processImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX_W = 800;
+      const ratio = Math.min(1, MAX_W / img.width);
+      const w = Math.round(img.width * ratio);
+      const h = Math.round(img.height * ratio);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        blob => blob ? resolve(blob) : reject(new Error('Conversion failed')),
+        'image/jpeg', 0.7
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Load failed')); };
+    img.src = url;
+  });
+}
+
 // ── State ──────────────────────────────────────────────────
 let plants   = loadPlants();
 let history  = loadHistory();
@@ -293,18 +342,6 @@ function getTasksForDate(d) {
         tasks.push({ plant: p, type: 'water', label: p.instruction + note, seasonal: n !== 3 });
       }
       continue;
-    }
-
-    // ── Orchid winter: every-2-weeks override ─────────────
-    if (p.id === 'orchid' && adj.intervalWeeks === 2) {
-      if (day === 0 && weeksSinceEpoch(d) % 2 === 0) {
-        tasks.push({
-          plant: p, type: 'water',
-          label: p.instruction + ' (חורף – כל שבועיים)',
-          seasonal: true,
-        });
-      }
-      continue; // skip normal Sunday + non-Sunday logic
     }
 
     // ── Sunday: main watering for all weekly plants ────────
@@ -597,6 +634,7 @@ function openDayModal(date, tasks) {
 function renderPlants() {
   const container = document.getElementById('plants-list');
   container.innerHTML = '';
+
   plants.forEach(p => {
     const card = document.createElement('div');
     card.className = 'card plant-list-card';
@@ -606,14 +644,34 @@ function renderPlants() {
         <div class="plant-name">${p.name}</div>
         <span class="plant-schedule-tag">${scheduleLabel(p)}</span>
         <div class="plant-notes">${p.notes}</div>
+        <button class="photo-btn" data-pid="${p.id}">📷 תמונות</button>
       </div>
-      <button class="edit-btn" data-pid="${p.id}" title="ערוך">✏️</button>
+      <div class="plant-card-actions">
+        <button class="edit-btn" data-pid="${p.id}" title="ערוך">✏️</button>
+        <button class="delete-btn" data-pid="${p.id}" title="מחק">🗑</button>
+      </div>
     `;
     container.appendChild(card);
+  });
+
+  container.querySelectorAll('.photo-btn').forEach(btn => {
+    btn.addEventListener('click', () => openPhotoModal(btn.dataset.pid));
   });
   container.querySelectorAll('.edit-btn').forEach(btn => {
     btn.addEventListener('click', () => openEditModal(btn.dataset.pid));
   });
+  container.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => deletePlant(btn.dataset.pid));
+  });
+}
+
+function deletePlant(pid) {
+  const p = plants.find(x => x.id === pid);
+  if (!p) return;
+  if (!confirm(`למחוק את "${p.name}"?`)) return;
+  plants = plants.filter(x => x.id !== pid);
+  savePlants(plants);
+  renderPlants();
 }
 
 function scheduleLabel(p) {
@@ -626,10 +684,96 @@ function scheduleLabel(p) {
     if (n === 4) return `כל 4 שבועות (${SEASON_LABELS.winter.emoji} חורף)`;
     return 'כל 3 שבועות – ראשון';
   }
-  if (p.id === 'orchid' && adj.intervalWeeks === 2) return 'כל שבועיים (חורף)';
   if (p.checkDay !== null && !adj.removeCheckDay)
     return `ראשון + בדיקה ב${DAY_NAMES_HE[p.checkDay]}`;
   return 'כל ראשון';
+}
+
+// ── PHOTO MODAL ───────────────────────────────────────────
+let photoModalPlantId = null;
+let photoBlobUrls = [];
+
+function formatPhotoDate(ts) {
+  const d = new Date(ts);
+  return `${d.getDate()} ב${MONTH_NAMES_HE[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function cleanupPhotoBlobUrls() {
+  photoBlobUrls.forEach(u => URL.revokeObjectURL(u));
+  photoBlobUrls = [];
+}
+
+function openPhotoModal(pid) {
+  const p = plants.find(x => x.id === pid);
+  if (!p) return;
+  photoModalPlantId = pid;
+  document.getElementById('photo-modal-title').textContent = `${p.emoji} ${p.name}`;
+  document.getElementById('photo-modal').classList.add('open');
+  refreshPhotoGallery(pid);
+}
+
+function closePhotoModal() {
+  cleanupPhotoBlobUrls();
+  document.getElementById('photo-modal').classList.remove('open');
+  photoModalPlantId = null;
+}
+
+async function handlePhotoFile(file) {
+  if (!file || !photoModalPlantId) return;
+  const label = document.getElementById('photo-upload-label');
+  label.classList.add('uploading');
+  try {
+    const blob = await processImage(file);
+    await dbAddPhoto(photoModalPlantId, blob);
+    refreshPhotoGallery(photoModalPlantId);
+  } catch (err) {
+    console.error('Photo upload failed:', err);
+    alert('שגיאה בשמירת התמונה. ייתכן שנגמר המקום.');
+  } finally {
+    label.classList.remove('uploading');
+  }
+}
+
+function refreshPhotoGallery(plantId) {
+  cleanupPhotoBlobUrls();
+  const gallery = document.getElementById('photo-gallery');
+  gallery.innerHTML = '<div class="photo-empty">טוען...</div>';
+
+  dbGetPhotos(plantId).then(photos => {
+    gallery.innerHTML = '';
+
+    if (photos.length === 0) {
+      gallery.innerHTML = '<div class="photo-empty">עדיין אין תמונות.<br>לחצי על "הוסף תמונה" כדי להתחיל!</div>';
+      return;
+    }
+
+    photos.forEach(photo => {
+      const blobUrl = URL.createObjectURL(photo.blob);
+      photoBlobUrls.push(blobUrl);
+
+      const item = document.createElement('div');
+      item.className = 'photo-item';
+      item.innerHTML = `
+        <div class="photo-img-wrap">
+          <img src="${blobUrl}" alt="תמונת צמח" class="photo-img" loading="lazy">
+          <button class="photo-delete-btn" data-id="${photo.id}" title="מחק תמונה">🗑</button>
+        </div>
+        <div class="photo-date">${formatPhotoDate(photo.date)}</div>
+      `;
+      gallery.appendChild(item);
+    });
+
+    gallery.querySelectorAll('.photo-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('למחוק את התמונה?')) return;
+        await dbDeletePhoto(Number(btn.dataset.id));
+        refreshPhotoGallery(plantId);
+      });
+    });
+
+  }).catch(() => {
+    gallery.innerHTML = '<div class="photo-empty">שגיאה בטעינת תמונות</div>';
+  });
 }
 
 // ── EDIT MODAL ────────────────────────────────────────────
@@ -657,6 +801,71 @@ function saveEdit() {
   plants[idx].instruction = document.getElementById('edit-instr').value.trim();
   savePlants(plants);
   closeEditModal();
+  renderPlants();
+}
+
+// ── ADD PLANT MODAL ───────────────────────────────────────
+const ADD_EMOJIS = ['🌱','🌿','🌸','🍃','🪴','🌼','🌻','🌾','🍀','🌵','🍋','🎋','🌴','✨'];
+
+function openAddModal() {
+  // Reset form
+  document.getElementById('add-name').value  = '';
+  document.getElementById('add-notes').value = '';
+  document.getElementById('add-freq').value  = 'weekly';
+  document.getElementById('add-check').value = 'none';
+  document.getElementById('add-check-row').style.display = '';
+  // Reset emoji selection to first option
+  document.querySelectorAll('.emoji-opt').forEach((b, i) => {
+    b.classList.toggle('selected', i === 0);
+  });
+  document.getElementById('add-modal').classList.add('open');
+  document.getElementById('add-name').focus();
+}
+
+function closeAddModal() {
+  document.getElementById('add-modal').classList.remove('open');
+}
+
+function buildInstruction(freq, checkDay) {
+  if (freq === '3weeks') return 'השקי אחת ל-3 שבועות, ביום ראשון בלבד.';
+  let s = 'השקי ביום ראשון.';
+  if (checkDay === 2) s += ' בדקי ביום שלישי – הוסיפי מים אם יבש.';
+  if (checkDay === 4) s += ' בדקי ביום חמישי – הוסיפי מים אם יבש.';
+  return s;
+}
+
+function saveNewPlant() {
+  const name = document.getElementById('add-name').value.trim();
+  if (!name) {
+    document.getElementById('add-name').focus();
+    document.getElementById('add-name').style.borderColor = '#e74c3c';
+    return;
+  }
+  document.getElementById('add-name').style.borderColor = '';
+
+  const selectedEmoji = document.querySelector('.emoji-opt.selected');
+  const emoji    = selectedEmoji ? selectedEmoji.textContent : '🌱';
+  const freq     = document.getElementById('add-freq').value;
+  const checkRaw = document.getElementById('add-check').value;
+  const checkDay = checkRaw === 'none' ? null : parseInt(checkRaw);
+  const notes    = document.getElementById('add-notes').value.trim();
+
+  const newPlant = {
+    id:          'custom_' + Date.now(),
+    name,
+    emoji,
+    schedule:    freq === '3weeks' ? 'every-3-weeks' : 'weekly-sunday',
+    checkDay:    freq === '3weeks' ? null : checkDay,
+    checkNote:   (freq !== '3weeks' && checkDay !== null) ? 'בדקי לחות לפי מצב האדמה' : null,
+    instruction: buildInstruction(freq, freq === '3weeks' ? null : checkDay),
+    notes,
+    waterDays:   [0],
+    everyNWeeks: freq === '3weeks' ? 3 : 1,
+  };
+
+  plants.push(newPlant);
+  savePlants(plants);
+  closeAddModal();
   renderPlants();
 }
 
@@ -783,11 +992,41 @@ document.addEventListener('DOMContentLoaded', () => {
     renderCalendar();
   });
 
+  // Photo modal
+  document.getElementById('photo-modal-close').addEventListener('click', closePhotoModal);
+  document.getElementById('photo-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('photo-modal')) closePhotoModal();
+  });
+  document.getElementById('photo-file-input').addEventListener('change', e => {
+    if (e.target.files[0]) handlePhotoFile(e.target.files[0]);
+    e.target.value = '';
+  });
+
   // Edit modal
   document.getElementById('edit-save').addEventListener('click', saveEdit);
   document.getElementById('edit-cancel').addEventListener('click', closeEditModal);
   document.getElementById('edit-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('edit-modal')) closeEditModal();
+  });
+
+  // Add plant modal
+  document.getElementById('btn-add-plant').addEventListener('click', openAddModal);
+  document.getElementById('add-save').addEventListener('click', saveNewPlant);
+  document.getElementById('add-cancel').addEventListener('click', closeAddModal);
+  document.getElementById('add-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('add-modal')) closeAddModal();
+  });
+  // Emoji picker
+  document.querySelectorAll('.emoji-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.emoji-opt').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+  // Hide/show check-day row when frequency changes
+  document.getElementById('add-freq').addEventListener('change', e => {
+    document.getElementById('add-check-row').style.display =
+      e.target.value === '3weeks' ? 'none' : '';
   });
 
   // Settings – notifications
